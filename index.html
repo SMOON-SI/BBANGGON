@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>서비스 레포트 - DIC Water</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background:#dfe6ed; font-family:'Noto Sans KR',sans-serif; color:#1a1a2e; }
+    .tab-bar { position: fixed; top:0; left:0; right:0; z-index:200; display:flex; justify-content:center; background:#1a2744; }
+    .tab-btn { padding:12px 28px; border:none; background:transparent; color:#7a8da6; font-weight:700; cursor:pointer; }
+    .tab-btn.active { color:#fff; border-bottom:3px solid #4a9eff; }
+    .tab-content { display:none; padding-top:50px; }
+    .tab-content.active { display:block; }
+    .page { width:min(1000px, calc(100vw - 24px)); margin:14px auto; background:#fff; padding:20px; box-shadow:0 4px 24px rgba(0,0,0,0.12); position:relative; }
+    .header { display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #1a2744; padding-bottom:8px; margin-bottom:8px; }
+    .header-center h1 { margin:0; letter-spacing:6px; }
+    .section { margin:12px 0; }
+    .section-title { font-size:12px; color:#fff; background:#1a2744; padding:6px 10px; }
+    .editable { border:1px dashed transparent; border-radius:4px; padding:1px 4px; display:inline-block; min-width:8px; }
+    .editable:hover { border-color:#b0c4de; background:#f0f5ff; }
+    .editable:focus { outline:none; border-color:#4a9eff; background:#eef4ff; }
+
+    /* Drag mode */
+    .toolbar { position: fixed; right: 18px; bottom: 18px; z-index: 210; display:flex; gap:8px; }
+    .tool-btn { border:none; padding:10px 14px; border-radius:8px; cursor:pointer; color:#fff; font-weight:700; box-shadow:0 4px 14px rgba(0,0,0,0.2); }
+    .print-btn { background:#1a2744; }
+    .drag-btn { background:#2c5aa0; }
+    .drag-btn.active { background:#059669; }
+    .drag-mode .editable { cursor: grab; }
+    .drag-mode .editable.dragging { cursor: grabbing; user-select:none; }
+    .drag-mode .editable { border-color:#93c5fd; }
+
+    .manager-wrap { max-width:900px; margin:24px auto; background:#fff; border-radius:10px; padding:20px; }
+  </style>
+</head>
+<body>
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('report')">📋 서비스 레포트</button>
+    <button class="tab-btn" onclick="switchTab('checklist')">⚙️ 체크리스트 관리</button>
+  </div>
+
+  <div id="tab-report" class="tab-content active">
+    <div class="page" id="report-page">
+      <div class="header">
+        <div><strong>DIC WATER</strong></div>
+        <div class="header-center"><h1>서비스 레포트</h1><div>SERVICE REPORT</div></div>
+        <div><span class="editable" contenteditable="true">TEL 055-123-4567</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">고객 정보</div>
+        <p><b>병원명:</b> <span class="editable" contenteditable="true">경상국립대학교병원</span></p>
+        <p><b>주소:</b> <span class="editable" contenteditable="true">경남 진주시 강남로 79</span></p>
+      </div>
+
+      <div class="section">
+        <div class="section-title">고객 요청사항</div>
+        <div class="editable" contenteditable="true" style="display:block; min-height:38px;">초순수 수질 저하로 인한 점검 요청.</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">서비스 내용</div>
+        <div class="editable" contenteditable="true" style="display:block; min-height:70px; white-space:pre-wrap;">▶ 프리필터 교체 완료
+▶ 카본필터 교체 완료
+▶ RO 플러싱 세정 실시</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">다음 방문 예정일</div>
+        <p><span class="editable" contenteditable="true">2026-08-19</span> / <span class="editable" contenteditable="true">정기점검</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-checklist" class="tab-content">
+    <div class="manager-wrap">
+      <h2>점검 체크리스트 관리</h2>
+      <p>원본 기능 영역 (생략)</p>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="tool-btn drag-btn" id="drag-toggle-btn" onclick="toggleDragMode()">✋ 위치 수정 OFF</button>
+    <button class="tool-btn print-btn" onclick="resetAllPositions()">♻️ 위치 초기화</button>
+    <button class="tool-btn print-btn" onclick="window.print()">🖨️ 인쇄 / PDF</button>
+  </div>
+
+  <script>
+    let dragMode = false;
+    let draggingEl = null;
+    let startX = 0, startY = 0;
+    let baseX = 0, baseY = 0;
+
+    function switchTab(tab){
+      document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',(tab==='report'&&i===0)||(tab==='checklist'&&i===1)));
+      document.getElementById('tab-report').classList.toggle('active', tab==='report');
+      document.getElementById('tab-checklist').classList.toggle('active', tab==='checklist');
+    }
+
+    function getXY(el){
+      const x = Number(el.dataset.x || 0);
+      const y = Number(el.dataset.y || 0);
+      return {x,y};
+    }
+
+    function keyFor(el){
+      return `pos:${el.dataset.dragId}`;
+    }
+
+    function applyXY(el, x, y){
+      el.dataset.x = x;
+      el.dataset.y = y;
+      el.style.position = 'relative';
+      el.style.transform = `translate(${x}px, ${y}px)`;
+      if (el.dataset.dragId) localStorage.setItem(keyFor(el), JSON.stringify({x,y}));
+    }
+
+    function onDragStart(e){
+      if(!dragMode) return;
+      const el = e.currentTarget;
+      draggingEl = el;
+      el.classList.add('dragging');
+      const {x,y} = getXY(el);
+      baseX = x; baseY = y;
+      startX = e.clientX; startY = e.clientY;
+      e.preventDefault();
+    }
+
+    function onDragMove(e){
+      if(!dragMode || !draggingEl) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      applyXY(draggingEl, baseX + dx, baseY + dy);
+    }
+
+    function onDragEnd(){
+      if(!draggingEl) return;
+      draggingEl.classList.remove('dragging');
+      draggingEl = null;
+    }
+
+    function bindDraggables(){
+      document.querySelectorAll('.editable').forEach((el, idx)=>{
+        if (!el.dataset.dragId) el.dataset.dragId = `editable-${idx}`;
+        const saved = localStorage.getItem(keyFor(el));
+        if (saved) {
+          try {
+            const {x,y} = JSON.parse(saved);
+            applyXY(el, Number(x)||0, Number(y)||0);
+          } catch (_) {}
+        }
+        el.removeEventListener('pointerdown', onDragStart);
+        el.addEventListener('pointerdown', onDragStart);
+      });
+    }
+
+    function resetAllPositions(){
+      document.querySelectorAll('.editable').forEach(el=>{
+        applyXY(el, 0, 0);
+        if (el.dataset.dragId) localStorage.removeItem(keyFor(el));
+      });
+    }
+
+    function toggleDragMode(){
+      dragMode = !dragMode;
+      const btn = document.getElementById('drag-toggle-btn');
+      document.body.classList.toggle('drag-mode', dragMode);
+      btn.classList.toggle('active', dragMode);
+      btn.textContent = dragMode ? '✅ 위치 수정 ON' : '✋ 위치 수정 OFF';
+      btn.title = dragMode ? '텍스트를 드래그해서 위치 조정 가능' : '드래그 잠금';
+    }
+
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragEnd);
+    bindDraggables();
+  </script>
+</body>
+</html>
