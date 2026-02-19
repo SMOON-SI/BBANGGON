@@ -83,6 +83,7 @@
 
   <div class="toolbar">
     <button class="tool-btn drag-btn" id="drag-toggle-btn" onclick="toggleDragMode()">✋ 위치 수정 OFF</button>
+    <button class="tool-btn print-btn" onclick="resetAllPositions()">♻️ 위치 초기화</button>
     <button class="tool-btn print-btn" onclick="window.print()">🖨️ 인쇄 / PDF</button>
   </div>
 
@@ -104,11 +105,16 @@
       return {x,y};
     }
 
+    function keyFor(el){
+      return `pos:${el.dataset.dragId}`;
+    }
+
     function applyXY(el, x, y){
       el.dataset.x = x;
       el.dataset.y = y;
       el.style.position = 'relative';
       el.style.transform = `translate(${x}px, ${y}px)`;
+      if (el.dataset.dragId) localStorage.setItem(keyFor(el), JSON.stringify({x,y}));
     }
 
     function onDragStart(e){
@@ -136,9 +142,24 @@
     }
 
     function bindDraggables(){
-      document.querySelectorAll('.editable').forEach(el=>{
+      document.querySelectorAll('.editable').forEach((el, idx)=>{
+        if (!el.dataset.dragId) el.dataset.dragId = `editable-${idx}`;
+        const saved = localStorage.getItem(keyFor(el));
+        if (saved) {
+          try {
+            const {x,y} = JSON.parse(saved);
+            applyXY(el, Number(x)||0, Number(y)||0);
+          } catch (_) {}
+        }
         el.removeEventListener('pointerdown', onDragStart);
         el.addEventListener('pointerdown', onDragStart);
+      });
+    }
+
+    function resetAllPositions(){
+      document.querySelectorAll('.editable').forEach(el=>{
+        applyXY(el, 0, 0);
+        if (el.dataset.dragId) localStorage.removeItem(keyFor(el));
       });
     }
 
