@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>통합 서비스 레포트 시스템 V5+</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    body{font-family:Arial,sans-serif;margin:0;background:#eef2f7;color:#1f2937}
+    .tab-bar{display:flex;background:#1e3a5f;color:#fff;position:sticky;top:0}
+    .tab{padding:12px 16px;cursor:pointer;border:none;background:transparent;color:#b9c6da;font-weight:700}
+    .tab.active{color:#fff;border-bottom:3px solid #60a5fa}
+    .page{display:none;padding:16px}.page.active{display:block}
+    .card{background:#fff;border:1px solid #d6dbe3;border-radius:10px;padding:14px;margin-bottom:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{border:1px solid #d6dbe3;padding:6px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+    button,input,select{padding:8px;border:1px solid #c8d1dc;border-radius:6px}
+    button{cursor:pointer;background:#f8fafc}
+    .danger{color:#dc2626}
+    .switch{position:relative;display:inline-block;width:42px;height:24px}
+    .switch input{opacity:0;width:0;height:0}
+    .slider{position:absolute;cursor:pointer;inset:0;background:#cbd5e1;transition:.2s;border-radius:999px}
+    .slider:before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;background:#fff;transition:.2s;border-radius:50%}
+    input:checked + .slider{background:#3b82f6}
+    input:checked + .slider:before{transform:translateX(18px)}
+    .off-row{text-decoration:line-through;color:#9ca3af;background:#f8fafc}
+    .report{max-width:900px;margin:0 auto;background:#fff;padding:16px;border-radius:10px;border:1px solid #d6dbe3}
+    .muted{color:#64748b;font-size:12px}
+  </style>
+</head>
+<body>
+  <div class="tab-bar">
+    <button class="tab active" data-tab="report">📄 레포트</button>
+    <button class="tab" data-tab="manager">⚙️ 데이터 관리</button>
+    <button class="tab" data-tab="analysis">📊 데이터 분석</button>
+  </div>
+
+  <section id="report" class="page active">
+    <div class="toolbar">
+      <button id="pdfBtn">📄 PDF 생성/다운로드</button>
+      <button id="shareBtn">📤 네이티브 공유</button>
+      <button onclick="window.print()">🖨️ 인쇄</button>
+    </div>
+    <div class="report" id="reportEl"></div>
+  </section>
+
+  <section id="manager" class="page">
+    <div class="card">
+      <h3>기본 설정 & 색상</h3>
+      <div class="toolbar">
+        <input id="hospital" placeholder="병원명" />
+        <input id="serviceDate" type="date" />
+        <input id="region" placeholder="지역(예: 경남 진주)" />
+        <input id="equipmentModel" placeholder="장비명" />
+        <input id="analyzerVendor" placeholder="분석장비 제조사" />
+      </div>
+      <textarea id="actionText" style="width:100%;min-height:90px" placeholder="조치내역"></textarea>
+    </div>
+
+    <div class="card">
+      <h3>🗑️ 장비 철수 상태 관리</h3>
+      <div id="withdrawRows"></div>
+      <button id="addWithdraw">+ 철수 항목 추가</button>
+    </div>
+
+    <div class="card">
+      <h3>👁️ 섹션/항목 표시·숨김 (토글 스위치)</h3>
+      <table>
+        <thead><tr><th>항목</th><th>표시</th></tr></thead>
+        <tbody id="visibilityRows"></tbody>
+      </table>
+      <div class="muted">OFF여도 팝업 미리보기/엑셀 추출에는 100% 원본 데이터가 포함됩니다.</div>
+    </div>
+
+    <div class="card">
+      <h3>클라우드(로컬 시뮬레이션)</h3>
+      <div class="toolbar">
+        <button id="saveBtn">☁️ 저장</button>
+        <button id="loadBtn">📂 불러오기</button>
+        <button id="deleteBtn">🗑️ 삭제</button>
+        <button id="previewBtn">👁️ 내용 팝업 확인(원본)</button>
+      </div>
+      <select id="storageList" style="width:100%"></select>
+      <div class="muted">철수 체크된 레포트는 목록 하단 + 빨간색 표시됩니다.</div>
+    </div>
+
+    <div class="card">
+      <h3>📊 고급 엑셀 추출</h3>
+      <div class="toolbar">
+        <button id="exportDb">DB형 통합 추출(고정 컬럼)</button>
+        <button id="exportHosp">병원별 시트 분할 추출</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="analysis" class="page">
+    <div class="card">
+      <h3>통계 및 데이터 분석 대시보드</h3>
+      <div id="stats"></div>
+    </div>
+  </section>
+
+  <script>
+    const KEY='bbanggon_reports_v5';
+    const schema=[
+      'report_no','service_date','hospital','region','equipment_model','analyzer_vendor','action_note','withdrawn','withdraw_date','withdraw_place','agency'
+    ];
+
+    const app={
+      reportNo:'', hospital:'', serviceDate:'', region:'', equipmentModel:'', analyzerVendor:'', actionText:'',
+      visibility:{hospital:true,serviceDate:true,equipmentModel:true,analyzerVendor:true,actionText:true},
+      withdrawals:[]
+    };
+
+    const fields=[
+      ['hospital','병원명'],['serviceDate','서비스일자'],['equipmentModel','장비명'],['analyzerVendor','분석장비 제조사'],['actionText','조치내역']
+    ];
+
+    document.querySelectorAll('.tab').forEach(btn=>btn.onclick=()=>{
+      document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+      if(btn.dataset.tab==='analysis') renderAnalysis();
+    });
+
+    function genReportNo(){
+      const d=app.serviceDate||new Date().toISOString().slice(0,10);
+      const seq=(readStore().length+1).toString().padStart(3,'0');
+      app.reportNo=`SR-${d.replaceAll('-','')}-${seq}`;
+    }
+
+    function bindInputs(){
+      ['hospital','serviceDate','region','equipmentModel','analyzerVendor','actionText'].forEach(id=>{
+        document.getElementById(id).value=app[id]||'';
+        document.getElementById(id).oninput=(e)=>{app[id]=e.target.value; if(id==='serviceDate') genReportNo(); renderReport();};
+      });
+    }
+
+    function renderReport(){
+      genReportNo();
+      const el=document.getElementById('reportEl');
+      let h=`<h2>서비스 레포트</h2><div class='muted'>${app.reportNo}</div><hr/>`;
+      fields.forEach(([k,l])=>{ if(app.visibility[k]) h+=`<p><b>${l}</b>: ${app[k]||'-'}</p>`; });
+      const w=app.withdrawals.filter(x=>x.enabled);
+      if(w.length) h+=`<p class='danger'><b>철수 상태</b>: ${w.length}건 활성</p>`;
+      el.innerHTML=h;
+    }
+
+    function renderVisibility(){
+      const tbody=document.getElementById('visibilityRows');
+      tbody.innerHTML=fields.map(([k,l])=>`<tr class='${app.visibility[k]?'':'off-row'}'><td>${l}</td><td><label class='switch'><input type='checkbox' ${app.visibility[k]?'checked':''} data-k='${k}'><span class='slider'></span></label></td></tr>`).join('');
+      tbody.querySelectorAll('input[type=checkbox]').forEach(ch=>ch.onchange=(e)=>{app.visibility[e.target.dataset.k]=e.target.checked;renderVisibility();renderReport();});
+    }
+
+    function renderWithdrawals(){
+      const host=document.getElementById('withdrawRows');
+      host.innerHTML=app.withdrawals.map((w,i)=>`<div class='toolbar'>
+        <label class='switch'><input type='checkbox' ${w.enabled?'checked':''} data-i='${i}' data-k='enabled'><span class='slider'></span></label>
+        <input type='date' value='${w.date||''}' data-i='${i}' data-k='date'>
+        <input placeholder='이동 장소' value='${w.place||''}' data-i='${i}' data-k='place'>
+        <input placeholder='대리점' value='${w.agency||''}' data-i='${i}' data-k='agency'>
+        <button data-del='${i}'>- 제거</button></div>`).join('');
+      host.querySelectorAll('input').forEach(inp=>inp.oninput=(e)=>{const i=+e.target.dataset.i;app.withdrawals[i][e.target.dataset.k]=e.target.type==='checkbox'?e.target.checked:e.target.value;renderReport();});
+      host.querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>{app.withdrawals.splice(+b.dataset.del,1);renderWithdrawals();renderReport();});
+    }
+
+    document.getElementById('addWithdraw').onclick=()=>{app.withdrawals.push({enabled:false,date:'',place:'',agency:''});renderWithdrawals();};
+
+    function readStore(){return JSON.parse(localStorage.getItem(KEY)||'[]');}
+    function writeStore(list){localStorage.setItem(KEY,JSON.stringify(list));}
+
+    function currentDoc(){
+      return {
+        id: `${(app.hospital||'무병원').replace(/\s+/g,'')}_${app.serviceDate||'nodate'}`,
+        ts:new Date().toISOString(),
+        data:JSON.parse(JSON.stringify(app))
+      };
+    }
+
+    function refreshList(){
+      const sel=document.getElementById('storageList');
+      const list=readStore().sort((a,b)=>b.ts.localeCompare(a.ts));
+      const active=list.filter(x=>!x.data.withdrawals?.some(w=>w.enabled));
+      const withdrawn=list.filter(x=>x.data.withdrawals?.some(w=>w.enabled));
+      const ordered=[...active,...withdrawn];
+      sel.innerHTML=ordered.map(r=>`<option value='${r.id}' style='color:${withdrawn.includes(r)?'#dc2626':'#111827'}'>${r.data.hospital||'미입력'} [${r.data.serviceDate||'-'}] ${withdrawn.includes(r)?' (철수)':''}</option>`).join('');
+    }
+
+    document.getElementById('saveBtn').onclick=()=>{
+      const list=readStore();
+      const doc=currentDoc();
+      const idx=list.findIndex(x=>x.id===doc.id);
+      if(idx>=0) list[idx]=doc; else list.push(doc);
+      writeStore(list); refreshList(); alert('저장 완료');
+    };
+
+    document.getElementById('loadBtn').onclick=()=>{
+      const id=document.getElementById('storageList').value; const doc=readStore().find(x=>x.id===id); if(!doc)return;
+      Object.assign(app,doc.data); bindInputs(); renderVisibility(); renderWithdrawals(); renderReport();
+    };
+
+    document.getElementById('deleteBtn').onclick=()=>{
+      const id=document.getElementById('storageList').value;
+      writeStore(readStore().filter(x=>x.id!==id)); refreshList();
+    };
+
+    document.getElementById('previewBtn').onclick=()=>{
+      const raw=JSON.stringify(currentDoc().data,null,2);
+      const win=window.open('','preview','width=700,height=700');
+      win.document.write(`<pre>${raw}</pre>`);
+    };
+
+    function toDbRow(doc){
+      const d=doc.data; const w=(d.withdrawals||[]).find(x=>x.enabled)||{};
+      return {
+        report_no:d.reportNo||'', service_date:d.serviceDate||'', hospital:d.hospital||'', region:d.region||'', equipment_model:d.equipmentModel||'',
+        analyzer_vendor:d.analyzerVendor||'', action_note:d.actionText||'', withdrawn:w.enabled?'Y':'N', withdraw_date:w.date||'', withdraw_place:w.place||'', agency:w.agency||''
+      };
+    }
+
+    document.getElementById('exportDb').onclick=()=>{
+      const rows=readStore().map(toDbRow);
+      const aoa=[schema, ...rows.map(r=>schema.map(k=>r[k]??''))];
+      const ws=XLSX.utils.aoa_to_sheet(aoa); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'DB');
+      XLSX.writeFile(wb,'통합레포트_DB.xlsx');
+    };
+
+    document.getElementById('exportHosp').onclick=()=>{
+      const list=readStore().map(toDbRow).sort((a,b)=>a.service_date.localeCompare(b.service_date));
+      const by={}; list.forEach(r=>{(by[r.hospital]??=[]).push(r);});
+      const wb=XLSX.utils.book_new();
+      Object.keys(by).forEach(h=>{
+        const aoa=[schema,...by[h].map(r=>schema.map(k=>r[k]??''))];
+        XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),(h||'미지정').slice(0,31));
+      });
+      XLSX.writeFile(wb,'병원별_통합레포트.xlsx');
+    };
+
+    function renderAnalysis(){
+      const list=readStore().map(x=>x.data);
+      const model={}; const vendor={}; const region={}; const keywords={};
+      list.forEach(d=>{
+        if(d.equipmentModel) model[d.equipmentModel]=(model[d.equipmentModel]||0)+1;
+        if(d.analyzerVendor) vendor[d.analyzerVendor]=(vendor[d.analyzerVendor]||0)+1;
+        if(d.region) region[d.region]=(region[d.region]||0)+1;
+        (d.actionText||'').split(/\s+/).filter(x=>x.length>1).forEach(k=>keywords[k]=(keywords[k]||0)+1);
+      });
+      const top=(obj,n=5)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,n).map(([k,v])=>`<li>${k}: ${v}</li>`).join('')||'<li>데이터 없음</li>';
+      document.getElementById('stats').innerHTML=`
+        <p><b>총 설치 장비 대수:</b> ${list.length}</p>
+        <h4>모델별 분류</h4><ul>${top(model)}</ul>
+        <h4>제조사별 분석 장비</h4><ul>${top(vendor)}</ul>
+        <h4>지역별 병원 분포</h4><ul>${top(region)}</ul>
+        <h4>최근 요청/점검 키워드</h4><ul>${top(keywords,10)}</ul>`;
+    }
+
+    function exportPdfBlob(){
+      return html2pdf().set({margin:8,filename:`${app.reportNo}.pdf`,jsPDF:{unit:'mm',format:'a4'}}).from(document.getElementById('reportEl')).outputPdf('blob');
+    }
+    document.getElementById('pdfBtn').onclick=async()=>{
+      const blob=await exportPdfBlob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${app.reportNo}.pdf`; a.click();
+    };
+    document.getElementById('shareBtn').onclick=async()=>{
+      const blob=await exportPdfBlob(); const file=new File([blob],`${app.reportNo}.pdf`,{type:'application/pdf'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=file.name; a.click();
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        try{ await navigator.share({title:'서비스 레포트',files:[file],text:app.hospital}); }catch(_e){}
+      } else alert('현재 브라우저는 네이티브 공유 미지원입니다. PDF를 다운로드했습니다.');
+    };
+
+    bindInputs(); renderVisibility(); renderWithdrawals(); renderReport(); refreshList();
+  </script>
+</body>
+</html>
